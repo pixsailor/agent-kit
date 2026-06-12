@@ -8,12 +8,13 @@ ALL_TARGETS="cursor codex claude gemini windsurf cline roo"
 
 usage() {
   cat <<EOF
-Usage: ./install.sh [--target <list>] [--project <path>] [--dry-run]
+Usage: ./install.sh [--target <list>] [--components <list>] [--project <path>] [--dry-run]
 
-  --target <list>   Comma-separated from: cursor,codex,claude,gemini,windsurf,cline,roo,all
-                    (default: all)
-  --project <path>  Install at project level under <path> (default: global home dirs)
-  --dry-run         Print actions without making changes
+  --target <list>      Comma-separated from: cursor,codex,claude,gemini,windsurf,cline,roo,all
+                       (default: all)
+  --components <list>  Comma-separated from: rules,skills,all  (default: all)
+  --project <path>     Install at project level under <path> (default: global home dirs)
+  --dry-run            Print actions without making changes
 
 Single source of truth: rules/behavior.md
   - cursor : generated .mdc (frontmatter + body) — RE-RUN install after editing the source
@@ -23,12 +24,14 @@ EOF
 }
 
 TARGETS="$ALL_TARGETS"
+COMPONENTS="rules skills"
 PROJECT=""
 DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target) TARGETS="${2//,/ }"; shift 2 ;;
+    --components) COMPONENTS="${2//,/ }"; shift 2 ;;
     --project) PROJECT="$(cd "$2" && pwd)"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -36,6 +39,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 case " $TARGETS " in *" all "*) TARGETS="$ALL_TARGETS" ;; esac
+case " $COMPONENTS " in *" all "*) COMPONENTS="rules skills" ;; esac
 
 cursor_frontmatter() {
   cat <<'EOF'
@@ -130,18 +134,24 @@ generate_cursor() {  # generate_cursor <dst>
 
 for t in $TARGETS; do
   dst="$(dest_for "$t")"
-  if [[ -z "$dst" ]]; then echo "unknown target: $t (skipped)"; continue; fi
-  if [[ "$t" == "cursor" ]]; then
-    generate_cursor "$dst"
-  else
-    symlink "$SRC" "$dst"
-  fi
   sd="$(skills_dir "$t")"
-  if [[ -n "$sd" ]]; then
+  if [[ -z "$dst" && -z "$sd" ]]; then echo "unknown target: $t (skipped)"; continue; fi
+
+  if [[ " $COMPONENTS " == *" rules "* ]]; then
+    if [[ -z "$dst" ]]; then
+      echo "no rule dest for target: $t (skipped rules)"
+    elif [[ "$t" == "cursor" ]]; then
+      generate_cursor "$dst"
+    else
+      symlink "$SRC" "$dst"
+    fi
+  fi
+
+  if [[ " $COMPONENTS " == *" skills "* && -n "$sd" ]]; then
     for d in "$REPO"/skills/*/; do
       [[ -d "$d" ]] && symlink "${d%/}" "$sd/$(basename "$d")"
     done
   fi
 done
 
-echo "Done. Targets: $TARGETS${PROJECT:+ (project: $PROJECT)}"
+echo "Done. Targets: $TARGETS | components: ${COMPONENTS// /,}${PROJECT:+ (project: $PROJECT)}"

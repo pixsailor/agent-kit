@@ -48,9 +48,10 @@ function usage() {
   install|uninstall  deploy/remove behavior + skills (accepts the flags below)
   validate           check every skills/*/SKILL.md frontmatter (no flags)
 
-  --target <list>   Comma-separated from: ${ALL_TARGETS.join(",")},all  (default: all)
-  --project <path>  Project-level install under <path> (default: global home dirs)
-  --dry-run         Print actions without making changes
+  --target <list>      Comma-separated from: ${ALL_TARGETS.join(",")},all  (default: all)
+  --components <list>  Comma-separated from: rules,skills,all  (default: all)
+  --project <path>     Project-level install under <path> (default: global home dirs)
+  --dry-run            Print actions without making changes
 
 Single source of truth: rules/behavior.md
   - cursor : generated .mdc (frontmatter + body) — re-run install after editing the source
@@ -63,16 +64,18 @@ Windows notes:
 }
 
 function parseArgs(argv) {
-  const opts = { targets: ALL_TARGETS.slice(), project: null, dryRun: false };
+  const opts = { targets: ALL_TARGETS.slice(), components: ["rules", "skills"], project: null, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--target") { const v = argv[++i] || ""; opts.targets = v.split(",").map((s) => s.trim()).filter(Boolean); }
+    else if (a === "--components") { const v = argv[++i] || ""; opts.components = v.split(",").map((s) => s.trim()).filter(Boolean); }
     else if (a === "--project") { opts.project = path.resolve(argv[++i] || ""); }
     else if (a === "--dry-run") { opts.dryRun = true; }
     else if (a === "-h" || a === "--help") { usage(); process.exit(0); }
     else { console.error(`unknown arg: ${a}`); usage(); process.exit(1); }
   }
   if (opts.targets.includes("all")) opts.targets = ALL_TARGETS.slice();
+  if (opts.components.includes("all")) opts.components = ["rules", "skills"];
   return opts;
 }
 
@@ -226,30 +229,44 @@ function validate() {
 
 function install(opts) {
   const skills = listSkillDirs();
+  const doRules = opts.components.includes("rules");
+  const doSkills = opts.components.includes("skills");
   for (const t of opts.targets) {
     if (!TARGETS[t]) { console.log(`unknown target: ${t} (skipped)`); continue; }
-    const bdst = destFor(t, "behavior", opts);
-    if (TARGETS[t].behavior.kind === "cursor-gen") generateCursor(bdst, opts.dryRun);
-    else link(SRC, bdst, "file", opts.dryRun);
 
-    const sdir = skillsDirFor(t, opts);
-    if (sdir) for (const name of skills) link(path.join(SKILLS_SRC, name), path.join(sdir, name), "dir", opts.dryRun);
+    if (doRules) {
+      const bdst = destFor(t, "behavior", opts);
+      if (TARGETS[t].behavior.kind === "cursor-gen") generateCursor(bdst, opts.dryRun);
+      else link(SRC, bdst, "file", opts.dryRun);
+    }
+
+    if (doSkills) {
+      const sdir = skillsDirFor(t, opts);
+      if (sdir) for (const name of skills) link(path.join(SKILLS_SRC, name), path.join(sdir, name), "dir", opts.dryRun);
+    }
   }
-  console.log(`Done. Targets: ${opts.targets.join(" ")}${opts.project ? ` (project: ${opts.project})` : ""}`);
+  console.log(`Done. Targets: ${opts.targets.join(" ")} | components: ${opts.components.join(",")}${opts.project ? ` (project: ${opts.project})` : ""}`);
 }
 
 function uninstall(opts) {
   const skills = listSkillDirs();
+  const doRules = opts.components.includes("rules");
+  const doSkills = opts.components.includes("skills");
   for (const t of opts.targets) {
     if (!TARGETS[t]) { console.log(`unknown target: ${t} (skipped)`); continue; }
-    const bdst = destFor(t, "behavior", opts);
-    if (TARGETS[t].behavior.kind === "cursor-gen") removeCursor(bdst, opts.dryRun);
-    else removeBehaviorFile(bdst, opts.dryRun);
 
-    const sdir = skillsDirFor(t, opts);
-    if (sdir) for (const name of skills) unlinkIfOurs(path.join(sdir, name), opts.dryRun);
+    if (doRules) {
+      const bdst = destFor(t, "behavior", opts);
+      if (TARGETS[t].behavior.kind === "cursor-gen") removeCursor(bdst, opts.dryRun);
+      else removeBehaviorFile(bdst, opts.dryRun);
+    }
+
+    if (doSkills) {
+      const sdir = skillsDirFor(t, opts);
+      if (sdir) for (const name of skills) unlinkIfOurs(path.join(sdir, name), opts.dryRun);
+    }
   }
-  console.log(`Done. Targets: ${opts.targets.join(" ")}${opts.project ? ` (project: ${opts.project})` : ""}`);
+  console.log(`Done. Targets: ${opts.targets.join(" ")} | components: ${opts.components.join(",")}${opts.project ? ` (project: ${opts.project})` : ""}`);
 }
 
 const [cmd, ...rest] = process.argv.slice(2);

@@ -54,7 +54,7 @@ agent-kit/
 
 ## 部署
 
-把 `behavior.md` 按目标工具的格式/位置产出，`--target` 选工具（逗号分隔，默认 `all`）。两套等价入口：
+把 `behavior.md` 按目标工具的格式/位置产出，`--target` 选工具（逗号分隔，默认 `all`），`--components` 选只装 rules / skills / 全部（逗号分隔，默认 `all`）。两套等价入口：
 
 - **`install.sh`（bash）**：macOS / Linux（或 WSL、Git Bash）。
 - **`bin/agent-kit`（Node CLI，跨平台，含 Windows）**：参数与 `.sh` 一致。
@@ -64,17 +64,24 @@ agent-kit/
 ./install.sh                              # 全装（all）到各工具全局目录
 ./install.sh --target cursor              # 只装 Cursor
 ./install.sh --target codex,claude        # 只装 Codex + Claude Code
+./install.sh --components skills          # 只装 skills（不动 rules）
+./install.sh --components rules           # 只装 rules（不动 skills）
+./install.sh --target cursor --components skills  # 仅给 Cursor 装 skills
 ./install.sh --target all --project ../x  # 项目级部署到 ../x
 ./install.sh --dry-run                    # 预览不执行
 ./uninstall.sh --target codex,claude      # 按 target 撤销
+./uninstall.sh --components skills        # 只卸 skills
 
 # Node CLI（全平台，含 Windows，需已装 Node）
 node bin/agent-kit install                       # 等价于 ./install.sh
 node bin/agent-kit install --target codex,claude
+node bin/agent-kit install --components skills   # 只装 skills
 node bin/agent-kit install --project ../x --dry-run
 node bin/agent-kit uninstall --target cursor
 node bin/agent-kit validate                      # 校验 skills 的 frontmatter
 ```
+
+> `--target` 与 `--components` 可组合。无论选哪些组件，未知 target 一律拦截并提示跳过。
 
 各 target 的全局位置与方式（behavior + skills 各自的目录）：
 
