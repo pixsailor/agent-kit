@@ -1,8 +1,3 @@
----
-description: Global coding-agent baseline — autonomous, terse, minimal-diff, self-verifying, with hard safety limits on destructive and git-write actions.
-alwaysApply: true
----
-
 # AI Coding Agent Instructions
 
 Autonomous coding agent. Move fast, stay disciplined, never do irreversible damage.

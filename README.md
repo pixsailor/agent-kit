@@ -1,8 +1,10 @@
 # agent-kit
 
-个人 AI 编码代理的 **skill / rule 仓库**（默认面向 Cursor）。集中维护跨项目通用的规则（rules）与技能（skills），通过软链接部署到全局 `~/.cursor` 或各项目的 `.cursor` 下，做到「一处维护、处处生效」。
+个人 AI 编码代理的 **skill / rule 仓库**。集中维护跨项目通用的规则（rules）与技能（skills），用一份纯 markdown 源 + 安装脚本部署到全局或各项目，做到「一处维护、处处生效」。
 
-> skills（`SKILL.md`）是跨工具开放标准，可移植到 Claude Code / Codex 等；rules（`.mdc`）目前为 Cursor 专属。
+> 行为规则的单一源是 `rules/behavior.md`（纯 markdown），`install.sh` 按 `--target` 部署到 Cursor / Codex / Claude Code / Gemini CLI / Windsurf / Cline / Roo——多数平台软链即时同步，Cursor 因需 frontmatter 走「生成 `.mdc`」。
+>
+> skills（`SKILL.md`）是跨工具开放标准，按 `--target` 软链到各平台自己的 skills 目录（Cursor / Claude / Codex / Gemini / Windsurf / Cline；Roo 无 skills 机制）。
 >
 > 本仓库本身**不是**要被 Cursor 当工作区加载的项目，只作为源（source of truth）。
 
@@ -12,10 +14,10 @@
 
 > 本仓库部分 skill 的理念参考自 [mattpocock/skills](https://github.com/mattpocock/skills)（MIT License），其中 `caveman` 为其同名 skill 的中文改写版，在此致谢。其余 skill 由 AI 综合通行工程标准/方法论实现。各 skill 所依据的思想与标准见下文[清单](#清单)的「来源」列（指思想出处，而非代码出处）。
 
-- **一处维护、处处生效** — 单一事实源 + 软链分发（DRY，《The Pragmatic Programmer》；dotfiles 惯例）。
+- **一处维护、处处生效** — 单一事实源 + 按 target 适配分发（DRY，《The Pragmatic Programmer》；dotfiles 惯例）。一份 `behavior.md`，脚本按各平台格式产出。
 - **Rule / Skill 二分** — Rule 是常驻约束、Skill 是按需流程（关注点分离 SoC；`SKILL.md` 对齐 Anthropic [Agent Skills](https://www.anthropic.com/news/agent-skills) 开放标准）。
 
-**Rules — `behavior.mdc`**
+**Rules — `behavior.md`**
 
 | 原则 | 来源 |
 |------|------|
@@ -34,40 +36,51 @@
 
 ```
 agent-kit/
-├── install.sh              # 软链到 ~/.cursor 或项目 .cursor
+├── install.sh              # 按 --target 部署到各工具（全局或项目）
 ├── uninstall.sh
-├── rules/                  # 通用规则（*.mdc）
-│   └── behavior.mdc
+├── rules/                  # 行为规则源
+│   └── behavior.md         # 纯 markdown 单一源（Cursor 的 frontmatter 由脚本注入）
 └── skills/                 # 通用技能（一 skill 一文件夹）
     └── <skill-name>/
         └── SKILL.md        # explore / grill / tdd / diagnose / review
                             #   commit / docs / adr / retro / caveman
 ```
 
-- **rules/**：平铺 `.mdc` 文件，每个文件带 frontmatter（`description` / `alwaysApply` / `globs`）。
+- **rules/**：`behavior.md` 为纯 markdown 单一源。Cursor 的 `.mdc`（含 `description` / `alwaysApply` frontmatter）由 `install.sh` 在部署时生成。
 - **skills/**：每个 skill 一个子文件夹，内含 `SKILL.md`，便于整目录部署。
 
 ## 部署
 
-内容需链接到 Cursor 实际加载的位置才会生效：
-
-- 全局：`~/.cursor/rules/`、`~/.cursor/skills/`
-- 项目级：`<项目>/.cursor/rules/`、`<项目>/.cursor/skills/`
-
-用 `install.sh` 一键软链（改动随仓库自动同步，无需重装）：
+`install.sh` 把 `behavior.md` 按目标工具的格式/位置产出，`--target` 选工具（逗号分隔，默认 `all`）：
 
 ```bash
-./install.sh                       # 装到全局 ~/.cursor
-./install.sh --project ../gadget   # 装到某项目的 .cursor
-./install.sh --dry-run             # 预览不执行
+./install.sh                              # 全装（all）到各工具全局目录
+./install.sh --target cursor              # 只装 Cursor
+./install.sh --target codex,claude        # 只装 Codex + Claude Code
+./install.sh --target all --project ../x  # 项目级部署到 ../x
+./install.sh --dry-run                    # 预览不执行
 
-./uninstall.sh                       # 从全局撤销
-./uninstall.sh --project ../gadget   # 从某项目撤销
+./uninstall.sh --target codex,claude      # 按 target 撤销
+./uninstall.sh --project ../x             # 撤销某项目的部署
 ```
 
-- 用软链而非拷贝：在本仓库改完，全局/项目立即生效。
-- `install.sh` 遇到同名「真实文件/目录」（非软链）会跳过并提示，不覆盖既有内容。
-- `uninstall.sh` 只删「指回本仓库」的软链，其它一律不动。
+各 target 的全局位置与方式（behavior + skills 各自的目录）：
+
+| target | behavior 全局位置 | behavior 方式 | skills 全局目录 |
+|--------|------------------|--------------|----------------|
+| `cursor` | `~/.cursor/rules/behavior.mdc` | 生成 `.mdc`（注入 frontmatter） | `~/.cursor/skills/` |
+| `codex` | `~/.codex/AGENTS.md` | 软链 | `~/.agents/skills/` |
+| `claude` | `~/.claude/CLAUDE.md` | 软链 | `~/.claude/skills/` |
+| `gemini` | `~/.gemini/GEMINI.md` | 软链 | `~/.gemini/skills/` |
+| `windsurf` | `~/.codeium/windsurf/memories/global_rules.md` | 软链 | `~/.codeium/windsurf/skills/` |
+| `cline` | `~/Documents/Cline/Rules/behavior.md` | 软链 | `~/.cline/skills/` |
+| `roo` | `~/.roo/rules/behavior.md` | 软链 | —（无 skills 机制） |
+
+- **软链类（codex/claude/gemini/windsurf/cline/roo）**：改 `behavior.md` 立即生效，无需重装。
+- **Cursor 的 behavior 为生成式**：`.mdc` 需要 frontmatter，无法纯软链——**改完 `behavior.md` 要重跑 `./install.sh --target cursor`** 才会更新。
+- **skills 整目录软链**到各平台 skills 目录（`SKILL.md` 是跨工具开放标准）；改 skill 内容立即生效。Roo 无 skills 机制，只部署 behavior。
+- `install.sh` 遇到同名「真实文件」（非本仓库软链、且非脚本生成的 `.mdc`）会跳过并提示，不覆盖。
+- `uninstall.sh` 只删「指回本仓库的软链」与「带 `agent-kit:managed` 标记的生成文件」，其它一律不动。
 
 ## 约定
 
@@ -80,7 +93,7 @@ agent-kit/
 
 | 文件 | 作用 |
 |------|------|
-| `behavior.mdc` | 全局编码行为基线：自主、精简、最小 diff、自验，含破坏性操作与 Git 写入的安全红线 |
+| `behavior.md` | 全局编码行为基线：自主、精简、最小 diff、自验，含破坏性操作与 Git 写入的安全红线（跨工具部署，Cursor 端生成为 `.mdc`） |
 
 ### Skills
 
@@ -116,7 +129,7 @@ agent-kit/
 | `retro` | 一个任务/迭代收尾，想复盘提炼 | "这次复盘一下" |
 | `caveman` | 想让回话极简、省 token | "野人模式" / "精简点" |
 
-> `behavior.mdc` 是**常驻规则**，每轮自动生效（无需调用）；`caveman` 是**对话模式**，开启后持续到说「正常模式」。
+> `behavior.md` 是**常驻规则**，每轮自动生效（无需调用）；`caveman` 是**对话模式**，开启后持续到说「正常模式」。
 
 ### 典型串联（举例：加一个功能）
 
