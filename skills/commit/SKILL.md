@@ -20,4 +20,5 @@ Only run when the user explicitly asks to commit. Never commit unprompted.
 - One logical change per commit; split unrelated changes.
 - Don't amend pushed commits; don't force-push; don't touch git config or hooks unless asked.
 - If a pre-commit hook fails, fix the issue and make a NEW commit (don't blindly --amend).
+- Push (when asked): `git fetch` first; ensure the branch has an upstream (`-u` on first push). Prefer fast-forward — if behind, integrate (rebase or merge, per repo habit) before pushing. A routine feature-branch fast-forward needs only the normal confirmation.
 - PR (only if asked): push branch, then open PR with a summary + test plan.
