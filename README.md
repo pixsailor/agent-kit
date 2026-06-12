@@ -38,6 +38,7 @@
 agent-kit/
 ├── install.sh              # bash 安装器（macOS/Linux）
 ├── uninstall.sh
+├── validate.sh             # 校验 skills 的 frontmatter（name/description/触发词）
 ├── bin/
 │   └── agent-kit           # Node CLI（跨平台，含 Windows；与 .sh 等价）
 ├── rules/                  # 行为规则源
@@ -72,6 +73,7 @@ node bin/agent-kit install                       # 等价于 ./install.sh
 node bin/agent-kit install --target codex,claude
 node bin/agent-kit install --project ../x --dry-run
 node bin/agent-kit uninstall --target cursor
+node bin/agent-kit validate                      # 校验 skills 的 frontmatter
 ```
 
 各 target 的全局位置与方式（behavior + skills 各自的目录）：
@@ -88,7 +90,7 @@ node bin/agent-kit uninstall --target cursor
 
 - **软链类（codex/claude/gemini/windsurf/cline/roo）**：改 `behavior.md` 立即生效，无需重装。
 - **Cursor 的 behavior 为生成式**：`.mdc` 需要 frontmatter，无法纯软链——**改完 `behavior.md` 要重跑 `./install.sh --target cursor`** 才会更新。
-- **skills 整目录软链**到各平台 skills 目录（`SKILL.md` 是跨工具开放标准）；改 skill 内容立即生效。Roo 无 skills 机制，只部署 behavior。
+- **skills 逐个子目录软链**到各平台 skills 目录（`SKILL.md` 是跨工具开放标准）；改**已有** skill 内容立即生效，但**新增/删除 skill 需重跑安装**（如 `./install.sh --target cursor`）才会建立/移除对应软链。Roo 无 skills 机制，只部署 behavior。
 - 安装器遇到同名「真实文件」（非本仓库软链、且非脚本生成的 `.mdc`）会跳过并提示，不覆盖。
 - 卸载只删「指回本仓库的软链」与「带 `agent-kit:managed` 标记的生成文件」，其它一律不动。
 - **Windows（Node CLI）**：skills 目录用 junction（无需管理员）；behavior 文件软链若无权限则降级为**复制**（改源需重跑安装）。Cursor 本就是生成式，不受影响。
@@ -97,6 +99,7 @@ node bin/agent-kit uninstall --target cursor
 
 - **Rule**：约束类（风格、边界、禁止项）。通用规则优先用 `alwaysApply: true` 或 `description` 语义触发；慎用相对路径 `globs`（部署到全局时不同项目下未必命中）。
 - **Skill**：流程类（多步操作手册）。`SKILL.md` 的描述要写清「**何时使用**」，否则不会被主动触发。
+- **校验**：改/加 skill 后跑 `./validate.sh`（或 `node bin/agent-kit validate`），检查每个 `SKILL.md` 的 frontmatter（`name` 与目录名一致、含 `description` 与触发词）。新增 skill 记得重跑安装。
 
 ## 清单
 

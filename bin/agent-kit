@@ -43,7 +43,10 @@ const TARGETS = {
 };
 
 function usage() {
-  console.log(`Usage: agent-kit <install|uninstall> [--target <list>] [--project <path>] [--dry-run]
+  console.log(`Usage: agent-kit <install|uninstall|validate> [--target <list>] [--project <path>] [--dry-run]
+
+  install|uninstall  deploy/remove behavior + skills (accepts the flags below)
+  validate           check every skills/*/SKILL.md frontmatter (no flags)
 
   --target <list>   Comma-separated from: ${ALL_TARGETS.join(",")},all  (default: all)
   --project <path>  Project-level install under <path> (default: global home dirs)
@@ -194,6 +197,33 @@ function removeBehaviorFile(dst, dryRun) {
   console.log(`skip (not ours): ${dst}`);
 }
 
+// Validate every skills/*/SKILL.md frontmatter. Returns true when all pass.
+function validate() {
+  const dirs = listSkillDirs();
+  if (dirs.length === 0) { console.log("no skills found under skills/*/SKILL.md"); return false; }
+  let errors = 0, checked = 0;
+  for (const dir of dirs) {
+    const f = path.join(SKILLS_SRC, dir, "SKILL.md");
+    const rel = `skills/${dir}/SKILL.md`;
+    if (!fs.existsSync(f)) { console.log(`FAIL ${rel}: missing SKILL.md`); errors++; continue; }
+    checked++;
+    const lines = fs.readFileSync(f, "utf8").split(/\r?\n/);
+    if (lines[0] !== "---") { console.log(`FAIL ${rel}: missing opening '---' frontmatter`); errors++; continue; }
+    let close = -1;
+    for (let i = 1; i < lines.length; i++) { if (/^---\s*$/.test(lines[i])) { close = i; break; } }
+    if (close === -1) { console.log(`FAIL ${rel}: frontmatter not closed with '---'`); errors++; continue; }
+    const fm = lines.slice(0, close + 1).join("\n");
+    const name = (fm.match(/^name:\s*(.+)$/m)?.[1] || "").trim();
+    if (!name) { console.log(`FAIL ${rel}: missing 'name:'`); errors++; }
+    else if (name !== dir) { console.log(`FAIL ${rel}: name '${name}' != directory '${dir}'`); errors++; }
+    if (!/^description:/m.test(fm)) { console.log(`FAIL ${rel}: missing 'description:'`); errors++; }
+    if (!fm.includes("触发")) { console.log(`FAIL ${rel}: description missing trigger hint (触发…)`); errors++; }
+  }
+  if (errors > 0) { console.log(`✗ ${errors} problem(s) across ${checked} skill(s).`); return false; }
+  console.log(`✓ all ${checked} skills valid.`);
+  return true;
+}
+
 function install(opts) {
   const skills = listSkillDirs();
   for (const t of opts.targets) {
@@ -225,5 +255,6 @@ function uninstall(opts) {
 const [cmd, ...rest] = process.argv.slice(2);
 if (cmd === "install") install(parseArgs(rest));
 else if (cmd === "uninstall") uninstall(parseArgs(rest));
+else if (cmd === "validate") process.exit(validate() ? 0 : 1);
 else if (!cmd || cmd === "-h" || cmd === "--help") { usage(); process.exit(0); }
 else { console.error(`unknown command: ${cmd}`); usage(); process.exit(1); }
