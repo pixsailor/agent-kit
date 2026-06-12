@@ -128,3 +128,9 @@ explore → grill → tdd → diagnose（卡住时）→ review → commit → d
 
 - **explore vs grill**：explore 摸**代码现状**（客观）；grill 对齐**需求意图**（主观）。常 explore 在前。
 - **diagnose vs review**：diagnose 是**坏了之后**找原因（救火）；review 是**改完之后**找隐患（防火）。
+
+## License
+
+[MIT](LICENSE)。`caveman` 改编自 [mattpocock/skills](https://github.com/mattpocock/skills)（MIT, © Matt Pocock），详见 [`NOTICE`](NOTICE)。
+
+> 本仓库为个人方法论库，自用为主、开放分享，按需不定期更新。欢迎提 issue/PR，会尽量抽空看。

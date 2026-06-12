@@ -1,0 +1,12 @@
+agent-kit
+Copyright (c) 2026 pixsailor
+
+This project includes work adapted from third-party sources:
+
+- skills/caveman/SKILL.md is a Chinese adaptation of the "caveman" skill from
+  mattpocock/skills (https://github.com/mattpocock/skills), licensed under the
+  MIT License, Copyright (c) Matt Pocock.
+
+Several other skills (grill, tdd, diagnose, explore) draw on ideas from
+mattpocock/skills and from established engineering practices; see README.md for
+the full attribution table.
