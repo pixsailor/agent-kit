@@ -44,8 +44,8 @@ agent-kit/
 │   └── behavior.md         # 纯 markdown 单一源（Cursor 的 frontmatter 由脚本注入）
 └── skills/                 # 通用技能（一 skill 一文件夹）
     └── <skill-name>/
-        └── SKILL.md        # explore / grill / tdd / diagnose / review
-                            #   commit / docs / adr / retro / caveman
+        └── SKILL.md        # propose（统筹）/ explore / grill / tdd / diagnose
+                            #   review / commit / docs / adr / retro / caveman
 ```
 
 - **rules/**：`behavior.md` 为纯 markdown 单一源。Cursor 的 `.mdc`（含 `description` / `alwaysApply` frontmatter）由 `install.sh` 在部署时生成。
@@ -112,6 +112,7 @@ node bin/agent-kit uninstall --target cursor
 
 | 名称 | 作用 | 来源 / 依据 |
 |------|------|-----------|
+| `propose` | 编排层：把目标拆成有序、可确认的计划，并把每步映射/调度到本仓库其它 skill；仅在用户显式要求规划时触发 | 工作流编排（自建 meta-skill）；任务分解 |
 | `explore` | 只读地快速摸清陌生代码：定位入口/结构/数据流与约定，产出带 `path:line` 的精简上手说明 | 理念近 mattpocock/skills `zoom-out`；代码考古 |
 | `grill` | 解决问题前的审问对齐：逐个提问、能查代码先查、厘清术语与边界，达成可验证的共识后再动手 | 参考 mattpocock/skills `grill-me`；苏格拉底式提问 |
 | `tdd` | 测试驱动开发循环（红-绿-重构）：先写失败测试、确认变红、最小实现转绿、再重构，小步推进；自动沿用项目现有测试框架 | 参考 mattpocock/skills `tdd`；Kent Beck TDD |
@@ -129,6 +130,7 @@ node bin/agent-kit uninstall --target cursor
 
 | skill | 什么时候用 | 你会怎么说 |
 |-------|-----------|-----------|
+| `propose` | 任务多步，想先规划并串起多个 skill 再动手 | "制定执行计划" / "统筹下怎么推进" |
 | `explore` | 接手陌生项目/模块，先搞懂再动 | "带我熟悉下这个网络模块" |
 | `grill` | 需求模糊、方案没定，动手前对齐 | "动手前先帮我把方案捋清楚" |
 | `tdd` | 稳着实现一个新功能/改行为 | "用 TDD 实现这个校验" |
@@ -148,8 +150,11 @@ node bin/agent-kit uninstall --target cursor
 explore → grill → tdd → diagnose（卡住时）→ review → commit → docs → adr（重大决策）→ retro
 ```
 
+> `propose` 不在这条线里，而是**统筹层**：显式调用时由它规划整条链并按需调度上面各 skill。
+
 ### 易混分工
 
+- **propose vs grill**：propose 出**可执行步骤计划**并调度其它 skill（编排）；grill 是**拷问需求**对齐理解（不产出步骤）。
 - **explore vs grill**：explore 摸**代码现状**（客观）；grill 对齐**需求意图**（主观）。常 explore 在前。
 - **diagnose vs review**：diagnose 是**坏了之后**找原因（救火）；review 是**改完之后**找隐患（防火）。
 
