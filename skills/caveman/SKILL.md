@@ -5,6 +5,8 @@ description: >
  触发词："caveman"、"野人模式"、"极简"、"省 token"、"精简点"，或 /caveman。
 ---
 
+<!-- 中文改写自 mattpocock/skills `caveman`，MIT License，© Matt Pocock。https://github.com/mattpocock/skills -->
+
 野人模式：像聪明野人一样说话。技术内容全留，废话全删。
 
 ## 持续生效
