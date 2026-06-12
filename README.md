@@ -2,7 +2,7 @@
 
 个人 AI 编码代理的 **skill / rule 仓库**。集中维护跨项目通用的规则（rules）与技能（skills），用一份纯 markdown 源 + 安装脚本部署到全局或各项目，做到「一处维护、处处生效」。
 
-> 行为规则的单一源是 `rules/behavior.md`（纯 markdown），`install.sh` 按 `--target` 部署到 Cursor / Codex / Claude Code / Gemini CLI / Windsurf / Cline / Roo——多数平台软链即时同步，Cursor 因需 frontmatter 走「生成 `.mdc`」。
+> 行为规则的单一源是 `rules/behavior.md`（纯 markdown），安装器按 `--target` 部署到 Cursor / Codex / Claude Code / Gemini CLI / Windsurf / Cline / Roo——多数平台软链即时同步，Cursor 因需 frontmatter 走「生成 `.mdc`」。安装器有两套等价入口：`install.sh`（bash）与 `bin/agent-kit`（Node CLI，跨平台含 Windows）。
 >
 > skills（`SKILL.md`）是跨工具开放标准，按 `--target` 软链到各平台自己的 skills 目录（Cursor / Claude / Codex / Gemini / Windsurf / Cline；Roo 无 skills 机制）。
 >
@@ -36,8 +36,10 @@
 
 ```
 agent-kit/
-├── install.sh              # 按 --target 部署到各工具（全局或项目）
+├── install.sh              # bash 安装器（macOS/Linux）
 ├── uninstall.sh
+├── bin/
+│   └── agent-kit           # Node CLI（跨平台，含 Windows；与 .sh 等价）
 ├── rules/                  # 行为规则源
 │   └── behavior.md         # 纯 markdown 单一源（Cursor 的 frontmatter 由脚本注入）
 └── skills/                 # 通用技能（一 skill 一文件夹）
@@ -51,17 +53,25 @@ agent-kit/
 
 ## 部署
 
-`install.sh` 把 `behavior.md` 按目标工具的格式/位置产出，`--target` 选工具（逗号分隔，默认 `all`）：
+把 `behavior.md` 按目标工具的格式/位置产出，`--target` 选工具（逗号分隔，默认 `all`）。两套等价入口：
+
+- **`install.sh`（bash）**：macOS / Linux（或 WSL、Git Bash）。
+- **`bin/agent-kit`（Node CLI，跨平台，含 Windows）**：参数与 `.sh` 一致。
 
 ```bash
+# bash（macOS/Linux）
 ./install.sh                              # 全装（all）到各工具全局目录
 ./install.sh --target cursor              # 只装 Cursor
 ./install.sh --target codex,claude        # 只装 Codex + Claude Code
 ./install.sh --target all --project ../x  # 项目级部署到 ../x
 ./install.sh --dry-run                    # 预览不执行
-
 ./uninstall.sh --target codex,claude      # 按 target 撤销
-./uninstall.sh --project ../x             # 撤销某项目的部署
+
+# Node CLI（全平台，含 Windows，需已装 Node）
+node bin/agent-kit install                       # 等价于 ./install.sh
+node bin/agent-kit install --target codex,claude
+node bin/agent-kit install --project ../x --dry-run
+node bin/agent-kit uninstall --target cursor
 ```
 
 各 target 的全局位置与方式（behavior + skills 各自的目录）：
@@ -79,8 +89,9 @@ agent-kit/
 - **软链类（codex/claude/gemini/windsurf/cline/roo）**：改 `behavior.md` 立即生效，无需重装。
 - **Cursor 的 behavior 为生成式**：`.mdc` 需要 frontmatter，无法纯软链——**改完 `behavior.md` 要重跑 `./install.sh --target cursor`** 才会更新。
 - **skills 整目录软链**到各平台 skills 目录（`SKILL.md` 是跨工具开放标准）；改 skill 内容立即生效。Roo 无 skills 机制，只部署 behavior。
-- `install.sh` 遇到同名「真实文件」（非本仓库软链、且非脚本生成的 `.mdc`）会跳过并提示，不覆盖。
-- `uninstall.sh` 只删「指回本仓库的软链」与「带 `agent-kit:managed` 标记的生成文件」，其它一律不动。
+- 安装器遇到同名「真实文件」（非本仓库软链、且非脚本生成的 `.mdc`）会跳过并提示，不覆盖。
+- 卸载只删「指回本仓库的软链」与「带 `agent-kit:managed` 标记的生成文件」，其它一律不动。
+- **Windows（Node CLI）**：skills 目录用 junction（无需管理员）；behavior 文件软链若无权限则降级为**复制**（改源需重跑安装）。Cursor 本就是生成式，不受影响。
 
 ## 约定
 

@@ -1,0 +1,229 @@
+#!/usr/bin/env node
+// agent-kit cross-platform installer (zero-dependency Node ESM).
+// Mirrors install.sh / uninstall.sh: deploy rules/behavior.md and skills/*
+// to multiple agent tools, on macOS / Linux / Windows.
+
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const SRC = path.join(REPO, "rules", "behavior.md");
+const SKILLS_SRC = path.join(REPO, "skills");
+const MARKER = "agent-kit:managed";
+const IS_WIN = process.platform === "win32";
+
+const CURSOR_FRONTMATTER = `---
+description: Global coding-agent baseline — autonomous, terse, minimal-diff, self-verifying, with hard safety limits on destructive and git-write actions.
+alwaysApply: true
+---
+`;
+
+const ALL_TARGETS = ["cursor", "codex", "claude", "gemini", "windsurf", "cline", "roo"];
+
+// Per-target relative paths (under home, or under project root when --project).
+// behavior: { rel, kind } where kind = "cursor-gen" | "symlink-file"
+// skills:   relative skills dir, or null when the tool has no skills mechanism
+const TARGETS = {
+  cursor:   { behavior: { global: ".cursor/rules/behavior.mdc",                     project: ".cursor/rules/behavior.mdc",   kind: "cursor-gen" },
+              skills:   { global: ".cursor/skills",                                  project: ".cursor/skills" } },
+  codex:    { behavior: { global: ".codex/AGENTS.md",                               project: "AGENTS.md",                    kind: "symlink-file" },
+              skills:   { global: ".agents/skills",                                  project: ".agents/skills" } },
+  claude:   { behavior: { global: ".claude/CLAUDE.md",                              project: "CLAUDE.md",                    kind: "symlink-file" },
+              skills:   { global: ".claude/skills",                                  project: ".claude/skills" } },
+  gemini:   { behavior: { global: ".gemini/GEMINI.md",                              project: "GEMINI.md",                    kind: "symlink-file" },
+              skills:   { global: ".gemini/skills",                                  project: ".gemini/skills" } },
+  windsurf: { behavior: { global: ".codeium/windsurf/memories/global_rules.md",     project: ".windsurf/rules/behavior.md",  kind: "symlink-file" },
+              skills:   { global: ".codeium/windsurf/skills",                        project: ".windsurf/skills" } },
+  cline:    { behavior: { global: "Documents/Cline/Rules/behavior.md",              project: ".clinerules/behavior.md",      kind: "symlink-file" },
+              skills:   { global: ".cline/skills",                                   project: ".cline/skills" } },
+  roo:      { behavior: { global: ".roo/rules/behavior.md",                         project: ".roo/rules/behavior.md",       kind: "symlink-file" },
+              skills:   null },
+};
+
+function usage() {
+  console.log(`Usage: agent-kit <install|uninstall> [--target <list>] [--project <path>] [--dry-run]
+
+  --target <list>   Comma-separated from: ${ALL_TARGETS.join(",")},all  (default: all)
+  --project <path>  Project-level install under <path> (default: global home dirs)
+  --dry-run         Print actions without making changes
+
+Single source of truth: rules/behavior.md
+  - cursor : generated .mdc (frontmatter + body) — re-run install after editing the source
+  - others : symlinked (file) — edits to the source take effect immediately
+  - skills : symlinked into each target's skills dir (roo has none)
+
+Windows notes:
+  - skill directories use junctions (no admin needed)
+  - behavior files fall back to a copy when symlinks are unavailable (re-run after edits)`);
+}
+
+function parseArgs(argv) {
+  const opts = { targets: ALL_TARGETS.slice(), project: null, dryRun: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--target") { const v = argv[++i] || ""; opts.targets = v.split(",").map((s) => s.trim()).filter(Boolean); }
+    else if (a === "--project") { opts.project = path.resolve(argv[++i] || ""); }
+    else if (a === "--dry-run") { opts.dryRun = true; }
+    else if (a === "-h" || a === "--help") { usage(); process.exit(0); }
+    else { console.error(`unknown arg: ${a}`); usage(); process.exit(1); }
+  }
+  if (opts.targets.includes("all")) opts.targets = ALL_TARGETS.slice();
+  return opts;
+}
+
+function baseDir(opts) {
+  return opts.project ? opts.project : homedir();
+}
+
+function destFor(t, kindKey, opts) {
+  const cfg = TARGETS[t];
+  if (!cfg) return null;
+  const rel = opts.project ? cfg[kindKey].project : cfg[kindKey].global;
+  return path.join(baseDir(opts), rel);
+}
+
+function skillsDirFor(t, opts) {
+  const cfg = TARGETS[t];
+  if (!cfg || !cfg.skills) return null;
+  const rel = opts.project ? cfg.skills.project : cfg.skills.global;
+  return path.join(baseDir(opts), rel);
+}
+
+function ensureDir(dir, dryRun) {
+  if (fs.existsSync(dir)) return;
+  if (dryRun) { console.log(`[dry-run] mkdir -p ${dir}`); return; }
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function isOurSymlink(p) {
+  try {
+    if (!fs.lstatSync(p).isSymbolicLink()) return false;
+    const tgt = path.resolve(path.dirname(p), fs.readlinkSync(p));
+    return tgt === REPO || tgt.startsWith(REPO + path.sep);
+  } catch { return false; }
+}
+
+// link a file or directory cross-platform.
+function link(src, dst, type, dryRun) {
+  // type: "file" | "dir"
+  if (fs.existsSync(dst) || fs.existsSync(path.dirname(dst))) { /* dir may need creating below */ }
+  // Skip real (non-symlink) existing paths to avoid clobbering user files.
+  let lst = null;
+  try { lst = fs.lstatSync(dst); } catch {}
+  if (lst && !lst.isSymbolicLink()) {
+    console.log(`skip (real path exists, not a symlink): ${dst}`);
+    return;
+  }
+  ensureDir(path.dirname(dst), dryRun);
+  if (dryRun) { console.log(`[dry-run] would link: ${dst} -> ${src}`); return; }
+  if (lst) fs.rmSync(dst, { recursive: true, force: true });
+  if (IS_WIN) {
+    if (type === "dir") {
+      fs.symlinkSync(src, dst, "junction"); // no admin needed
+      console.log(`linked (junction): ${dst} -> ${src}`);
+      return;
+    }
+    try {
+      fs.symlinkSync(src, dst, "file");
+      console.log(`linked: ${dst} -> ${src}`);
+    } catch {
+      fs.copyFileSync(src, dst); // fallback: no symlink privilege
+      console.log(`copied (no symlink privilege; re-run after editing source): ${dst}`);
+    }
+    return;
+  }
+  fs.symlinkSync(src, dst, type === "dir" ? "dir" : "file");
+  console.log(`linked: ${dst} -> ${src}`);
+}
+
+function generateCursor(dst, dryRun) {
+  let lst = null;
+  try { lst = fs.lstatSync(dst); } catch {}
+  if (lst && !lst.isSymbolicLink()) {
+    const managed = fs.existsSync(dst) && fs.readFileSync(dst, "utf8").includes(MARKER);
+    if (!managed) { console.log(`skip (real file exists, not managed by agent-kit): ${dst}`); return; }
+  }
+  ensureDir(path.dirname(dst), dryRun);
+  if (dryRun) { console.log(`[dry-run] would generate: ${dst} (frontmatter + behavior.md)`); return; }
+  if (lst && lst.isSymbolicLink()) fs.rmSync(dst, { force: true });
+  const body = fs.readFileSync(SRC, "utf8");
+  const out = `${CURSOR_FRONTMATTER}\n<!-- ${MARKER}: generated from agent-kit/rules/behavior.md; re-run install after editing the source -->\n\n${body}`;
+  fs.writeFileSync(dst, out);
+  console.log(`generated: ${dst}`);
+}
+
+function listSkillDirs() {
+  return fs.readdirSync(SKILLS_SRC, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+}
+
+function remove(p, dryRun) {
+  if (dryRun) { console.log(`[dry-run] would remove: ${p}`); return; }
+  fs.rmSync(p, { recursive: true, force: true });
+  console.log(`removed: ${p}`);
+}
+
+function unlinkIfOurs(dst, dryRun) {
+  let lst = null;
+  try { lst = fs.lstatSync(dst); } catch { return; }
+  if (!lst.isSymbolicLink()) { return; }
+  if (isOurSymlink(dst)) remove(dst, dryRun);
+  else console.log(`skip (not ours): ${dst}`);
+}
+
+function removeCursor(dst, dryRun) {
+  let lst = null;
+  try { lst = fs.lstatSync(dst); } catch { return; }
+  if (lst.isSymbolicLink()) { unlinkIfOurs(dst, dryRun); return; }
+  if (fs.readFileSync(dst, "utf8").includes(MARKER)) remove(dst, dryRun);
+  else console.log(`skip (not ours): ${dst}`);
+}
+
+// On Windows the behavior file may have been copied (not symlinked).
+function removeBehaviorFile(dst, dryRun) {
+  let lst = null;
+  try { lst = fs.lstatSync(dst); } catch { return; }
+  if (lst.isSymbolicLink()) { unlinkIfOurs(dst, dryRun); return; }
+  // copied fallback: only remove if byte-identical to our source
+  try {
+    if (fs.readFileSync(dst).equals(fs.readFileSync(SRC))) { remove(dst, dryRun); return; }
+  } catch {}
+  console.log(`skip (not ours): ${dst}`);
+}
+
+function install(opts) {
+  const skills = listSkillDirs();
+  for (const t of opts.targets) {
+    if (!TARGETS[t]) { console.log(`unknown target: ${t} (skipped)`); continue; }
+    const bdst = destFor(t, "behavior", opts);
+    if (TARGETS[t].behavior.kind === "cursor-gen") generateCursor(bdst, opts.dryRun);
+    else link(SRC, bdst, "file", opts.dryRun);
+
+    const sdir = skillsDirFor(t, opts);
+    if (sdir) for (const name of skills) link(path.join(SKILLS_SRC, name), path.join(sdir, name), "dir", opts.dryRun);
+  }
+  console.log(`Done. Targets: ${opts.targets.join(" ")}${opts.project ? ` (project: ${opts.project})` : ""}`);
+}
+
+function uninstall(opts) {
+  const skills = listSkillDirs();
+  for (const t of opts.targets) {
+    if (!TARGETS[t]) { console.log(`unknown target: ${t} (skipped)`); continue; }
+    const bdst = destFor(t, "behavior", opts);
+    if (TARGETS[t].behavior.kind === "cursor-gen") removeCursor(bdst, opts.dryRun);
+    else removeBehaviorFile(bdst, opts.dryRun);
+
+    const sdir = skillsDirFor(t, opts);
+    if (sdir) for (const name of skills) unlinkIfOurs(path.join(sdir, name), opts.dryRun);
+  }
+  console.log(`Done. Targets: ${opts.targets.join(" ")}${opts.project ? ` (project: ${opts.project})` : ""}`);
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+if (cmd === "install") install(parseArgs(rest));
+else if (cmd === "uninstall") uninstall(parseArgs(rest));
+else if (!cmd || cmd === "-h" || cmd === "--help") { usage(); process.exit(0); }
+else { console.error(`unknown command: ${cmd}`); usage(); process.exit(1); }
