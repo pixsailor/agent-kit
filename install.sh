@@ -117,6 +117,46 @@ symlink() {  # symlink <src> <dst>
   fi
 }
 
+generate_codex() {  # generate_codex <dst>; generate/update managed block, preserve user content
+  local dst="$1"
+  local start_m="<!-- agent-kit:managed: start -->"
+  local end_m="<!-- agent-kit:managed: end -->"
+
+  # Handle existing symlink (old install)
+  if [[ -L "$dst" ]]; then
+    local tgt; tgt="$(readlink "$dst")"
+    case "$tgt" in
+      "$REPO"/*) if [[ $DRY_RUN -eq 1 ]]; then echo "[dry-run] would remove old symlink: $dst"
+                 else rm "$dst"; echo "removed old symlink: $dst"; fi ;;
+      *)         echo "skip (symlink not ours): $dst -> $tgt"; return ;;
+    esac
+  fi
+
+  ensure_dir "$(dirname "$dst")"
+
+  local managed_block
+  managed_block="$(printf '%s\n<!-- generated from agent-kit/rules/behavior.md; re-run install.sh to update -->\n\n' "$start_m"; cat "$SRC"; printf '\n\n%s\n' "$end_m")"
+
+  if [[ $DRY_RUN -eq 1 ]]; then echo "[dry-run] would generate (codex): $dst"; return; fi
+
+  if [[ ! -e "$dst" ]]; then
+    printf '%s' "$managed_block" > "$dst"; echo "generated: $dst"
+  elif grep -qF "$start_m" "$dst" 2>/dev/null; then
+    # Update only the managed block; keep user content above it
+    local user_part
+    user_part="$(awk '/agent-kit:managed: start/{exit} {print}' "$dst" \
+      | awk '{lines[NR]=$0} NF{last=NR} END{for(i=1;i<=last;i++) print lines[i]}')"
+    if [[ -n "$user_part" ]]; then printf '%s\n\n%s' "$user_part" "$managed_block" > "$dst"
+    else printf '%s' "$managed_block" > "$dst"; fi
+    echo "updated managed block: $dst"
+  else
+    # Real file, no marker — preserve existing content, append managed block
+    local existing; existing="$(cat "$dst")"
+    printf '%s\n\n%s' "$existing" "$managed_block" > "$dst"
+    echo "appended managed block: $dst"
+  fi
+}
+
 generate_cursor() {  # generate_cursor <dst>
   local dst="$1"
   if [[ -e "$dst" && ! -L "$dst" ]] && ! grep -q "$MARKER" "$dst" 2>/dev/null; then
@@ -142,6 +182,8 @@ for t in $TARGETS; do
       echo "no rule dest for target: $t (skipped rules)"
     elif [[ "$t" == "cursor" ]]; then
       generate_cursor "$dst"
+    elif [[ "$t" == "codex" ]]; then
+      generate_codex "$dst"
     else
       symlink "$SRC" "$dst"
     fi

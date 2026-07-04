@@ -28,7 +28,7 @@ const ALL_TARGETS = ["cursor", "codex", "claude", "gemini", "windsurf", "cline",
 const TARGETS = {
   cursor:   { behavior: { global: ".cursor/rules/behavior.mdc",                     project: ".cursor/rules/behavior.mdc",   kind: "cursor-gen" },
               skills:   { global: ".cursor/skills",                                  project: ".cursor/skills" } },
-  codex:    { behavior: { global: ".codex/AGENTS.md",                               project: "AGENTS.md",                    kind: "symlink-file" },
+  codex:    { behavior: { global: ".codex/AGENTS.md",                               project: "AGENTS.md",                    kind: "codex-gen" },
               skills:   { global: ".agents/skills",                                  project: ".agents/skills" } },
   claude:   { behavior: { global: ".claude/CLAUDE.md",                              project: "CLAUDE.md",                    kind: "symlink-file" },
               skills:   { global: ".claude/skills",                                  project: ".claude/skills" } },
@@ -55,6 +55,7 @@ function usage() {
 
 Single source of truth: rules/behavior.md
   - cursor : generated .mdc (frontmatter + body) — re-run install after editing the source
+  - codex  : generated AGENTS.md (managed block appended; user content preserved) — re-run to update
   - others : symlinked (file) — edits to the source take effect immediately
   - skills : symlinked into each target's skills dir (roo has none)
 
@@ -142,6 +143,75 @@ function link(src, dst, type, dryRun) {
   }
   fs.symlinkSync(src, dst, type === "dir" ? "dir" : "file");
   console.log(`linked: ${dst} -> ${src}`);
+}
+
+const CODEX_START = "<!-- agent-kit:managed: start -->";
+const CODEX_END   = "<!-- agent-kit:managed: end -->";
+
+function generateCodex(dst, dryRun) {
+  let lst = null;
+  try { lst = fs.lstatSync(dst); } catch {}
+
+  // Handle old symlink install
+  if (lst && lst.isSymbolicLink()) {
+    if (isOurSymlink(dst)) {
+      if (dryRun) console.log(`[dry-run] would remove old symlink: ${dst}`);
+      else { fs.rmSync(dst, { force: true }); console.log(`removed old symlink: ${dst}`); }
+      lst = null;
+    } else {
+      console.log(`skip (symlink not ours): ${dst}`);
+      return;
+    }
+  }
+
+  ensureDir(path.dirname(dst), dryRun);
+  if (dryRun) { console.log(`[dry-run] would generate (codex): ${dst}`); return; }
+
+  const body = fs.readFileSync(SRC, "utf8").trimEnd();
+  const block = `${CODEX_START}\n<!-- generated from agent-kit/rules/behavior.md; re-run install after editing the source -->\n\n${body}\n\n${CODEX_END}\n`;
+
+  if (!lst || !fs.existsSync(dst)) {
+    fs.writeFileSync(dst, block);
+    console.log(`generated: ${dst}`);
+  } else {
+    const existing = fs.readFileSync(dst, "utf8");
+    const idx = existing.indexOf(CODEX_START);
+    if (idx !== -1) {
+      const user = existing.slice(0, idx).trimEnd();
+      fs.writeFileSync(dst, user ? `${user}\n\n${block}` : block);
+      console.log(`updated managed block: ${dst}`);
+    } else {
+      // Legacy Windows copy: byte-identical to behavior.md, no marker — replace entirely
+      const srcBuf = fs.readFileSync(SRC);
+      const isLegacyCopy = fs.readFileSync(dst).equals(srcBuf);
+      if (isLegacyCopy) {
+        fs.writeFileSync(dst, block);
+        console.log(`replaced legacy copy with managed block: ${dst}`);
+      } else {
+        fs.writeFileSync(dst, `${existing.trimEnd()}\n\n${block}`);
+        console.log(`appended managed block: ${dst}`);
+      }
+    }
+  }
+}
+
+function removeCodex(dst, dryRun) {
+  let lst = null;
+  try { lst = fs.lstatSync(dst); } catch { return; }
+  if (lst.isSymbolicLink()) { unlinkIfOurs(dst, dryRun); return; }
+  const content = fs.readFileSync(dst, "utf8");
+  if (!content.includes(CODEX_START)) {
+    // Legacy Windows copy: byte-identical to behavior.md — safe to remove
+    try { if (fs.readFileSync(dst).equals(fs.readFileSync(SRC))) { remove(dst, dryRun); return; } } catch {}
+    console.log(`skip (not ours): ${dst}`); return;
+  }
+  const user = content.slice(0, content.indexOf(CODEX_START)).trimEnd();
+  if (user) {
+    if (dryRun) console.log(`[dry-run] would strip managed block (preserve user content): ${dst}`);
+    else { fs.writeFileSync(dst, user + "\n"); console.log(`stripped managed block (user content preserved): ${dst}`); }
+  } else {
+    remove(dst, dryRun);
+  }
 }
 
 function generateCursor(dst, dryRun) {
@@ -237,6 +307,7 @@ function install(opts) {
     if (doRules) {
       const bdst = destFor(t, "behavior", opts);
       if (TARGETS[t].behavior.kind === "cursor-gen") generateCursor(bdst, opts.dryRun);
+      else if (TARGETS[t].behavior.kind === "codex-gen") generateCodex(bdst, opts.dryRun);
       else link(SRC, bdst, "file", opts.dryRun);
     }
 
@@ -258,6 +329,7 @@ function uninstall(opts) {
     if (doRules) {
       const bdst = destFor(t, "behavior", opts);
       if (TARGETS[t].behavior.kind === "cursor-gen") removeCursor(bdst, opts.dryRun);
+      else if (TARGETS[t].behavior.kind === "codex-gen") removeCodex(bdst, opts.dryRun);
       else removeBehaviorFile(bdst, opts.dryRun);
     }
 

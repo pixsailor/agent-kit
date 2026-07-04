@@ -88,15 +88,15 @@ node bin/agent-kit validate                      # 校验 skills 的 frontmatter
 | target | behavior 全局位置 | behavior 方式 | skills 全局目录 |
 |--------|------------------|--------------|----------------|
 | `cursor` | `~/.cursor/rules/behavior.mdc` | 生成 `.mdc`（注入 frontmatter） | `~/.cursor/skills/` |
-| `codex` | `~/.codex/AGENTS.md` | 软链 | `~/.agents/skills/` |
+| `codex` | `~/.codex/AGENTS.md` | 生成（managed 块追加；用户内容保留） | `~/.agents/skills/` |
 | `claude` | `~/.claude/CLAUDE.md` | 软链 | `~/.claude/skills/` |
 | `gemini` | `~/.gemini/GEMINI.md` | 软链 | `~/.gemini/skills/` |
 | `windsurf` | `~/.codeium/windsurf/memories/global_rules.md` | 软链 | `~/.codeium/windsurf/skills/` |
 | `cline` | `~/Documents/Cline/Rules/behavior.md` | 软链 | `~/.cline/skills/` |
 | `roo` | `~/.roo/rules/behavior.md` | 软链 | —（无 skills 机制） |
 
-- **软链类（codex/claude/gemini/windsurf/cline/roo）**：改 `behavior.md` 立即生效，无需重装。
-- **Cursor 的 behavior 为生成式**：`.mdc` 需要 frontmatter，无法纯软链——**改完 `behavior.md` 要重跑 `./install.sh --target cursor`** 才会更新。
+- **软链类（claude/gemini/windsurf/cline/roo）**：改 `behavior.md` 立即生效，无需重装。
+- **Cursor / Codex 的 behavior 为生成式**：**改完 `behavior.md` 要重跑 `./install.sh --target cursor,codex`** 才会更新。Cursor 需注入 frontmatter；Codex 生成时追加 managed 块并保留文件中已有的用户自定义内容，重跑只刷 managed 块、不影响用户内容。
 - **skills 逐个子目录软链**到各平台 skills 目录（`SKILL.md` 是跨工具开放标准）；改**已有** skill 内容立即生效，但**新增/删除 skill 需重跑安装**（如 `./install.sh --target cursor`）才会建立/移除对应软链。Roo 无 skills 机制，只部署 behavior。
 - 安装器遇到同名「真实文件」（非本仓库软链、且非脚本生成的 `.mdc`）会跳过并提示，不覆盖。
 - 卸载只删「指回本仓库的软链」与「带 `agent-kit:managed` 标记的生成文件」，其它一律不动。

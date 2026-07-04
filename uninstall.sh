@@ -100,6 +100,23 @@ unlink_if_ours() {  # unlink_if_ours <dst>
   esac
 }
 
+remove_codex() {  # remove_codex <dst>; strip managed block, preserve user content
+  local dst="$1"
+  local start_m="<!-- agent-kit:managed: start -->"
+  if [[ -L "$dst" ]]; then unlink_if_ours "$dst"; return; fi  # old symlink install
+  [[ -e "$dst" ]] || return 0
+  if ! grep -qF "$start_m" "$dst" 2>/dev/null; then echo "skip (not ours): $dst"; return; fi
+  local user_part
+  user_part="$(awk '/agent-kit:managed: start/{exit} {print}' "$dst" \
+    | awk '{lines[NR]=$0} NF{last=NR} END{for(i=1;i<=last;i++) print lines[i]}')"
+  if [[ -n "$user_part" ]]; then
+    if [[ $DRY_RUN -eq 1 ]]; then echo "[dry-run] would strip managed block (preserve user content): $dst"
+    else printf '%s\n' "$user_part" > "$dst"; echo "stripped managed block (user content preserved): $dst"; fi
+  else
+    remove "$dst"
+  fi
+}
+
 remove_cursor() {  # remove_cursor <dst>
   local dst="$1"
   if [[ -L "$dst" ]]; then unlink_if_ours "$dst"; return; fi
@@ -115,6 +132,8 @@ for t in $TARGETS; do
   if [[ " $COMPONENTS " == *" rules "* && -n "$dst" ]]; then
     if [[ "$t" == "cursor" ]]; then
       remove_cursor "$dst"
+    elif [[ "$t" == "codex" ]]; then
+      remove_codex "$dst"
     else
       unlink_if_ours "$dst"
     fi
