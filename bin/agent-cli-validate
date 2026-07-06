@@ -1,0 +1,460 @@
+#!/usr/bin/env node
+import { spawn } from "node:child_process";
+
+const VERSION = "0.1.0";
+const SCHEMA_VERSION = "1";
+const DEFAULT_TIMEOUT_MS = 5000;
+const INVALID_ARG = "--__agent_cli_validate_invalid_arg__";
+
+const EXIT = {
+  OK: 0,
+  ERROR: 1,
+  USAGE: 2,
+};
+
+function usage() {
+  return `Usage: agent-cli-validate --cmd <command> [options]
+
+Validate an agent-first CLI contract.
+
+Options:
+  --cmd <command>           Command to validate. Supports simple quoted args.
+  --success-args <args>     Args for a successful JSON check; --json is prepended.
+  --error-args <args>       Args for an error JSON check; default: ${INVALID_ARG}
+  --dry-run-args <args>     Args for a dry-run JSON check; --dry-run --json are prepended.
+  --schema-required         Fail if --schema is unsupported.
+  --timeout <ms>            Per-check timeout. Default: ${DEFAULT_TIMEOUT_MS}
+  --json                    Output validator result as JSON.
+  --verbose                 Include command output snippets in human mode.
+  --schema                  Print machine-readable schema.
+  --help                    Show help.
+  --version                 Show version.
+
+Examples:
+  agent-cli-validate --cmd "./bin/foo"
+  agent-cli-validate --cmd "foo" --success-args "list"
+  agent-cli-validate --cmd "foo" --dry-run-args "write --target tmp" --json`;
+}
+
+function parseArgv(argv) {
+  const opts = {
+    cmd: null,
+    successArgs: null,
+    errorArgs: INVALID_ARG,
+    dryRunArgs: null,
+    schemaRequired: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    json: false,
+    verbose: false,
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--help" || arg === "-h") opts.help = true;
+    else if (arg === "--version") opts.version = true;
+    else if (arg === "--schema") opts.schema = true;
+    else if (arg === "--cmd") opts.cmd = requireValue(argv, ++i, arg);
+    else if (arg === "--success-args") opts.successArgs = requireValue(argv, ++i, arg);
+    else if (arg === "--error-args") opts.errorArgs = requireValue(argv, ++i, arg);
+    else if (arg === "--dry-run-args") opts.dryRunArgs = requireValue(argv, ++i, arg);
+    else if (arg === "--schema-required") opts.schemaRequired = true;
+    else if (arg === "--timeout") opts.timeoutMs = parseTimeout(requireValue(argv, ++i, arg));
+    else if (arg === "--json") opts.json = true;
+    else if (arg === "--verbose") opts.verbose = true;
+    else throw new UsageError(`unknown arg: ${arg}`);
+  }
+
+  if (!opts.help && !opts.version && !opts.schema && !opts.cmd) {
+    throw new UsageError("missing required --cmd");
+  }
+  return opts;
+}
+
+function requireValue(argv, i, flag) {
+  const value = argv[i];
+  if (!value || value.startsWith("--")) throw new UsageError(`${flag} requires a value`);
+  return value;
+}
+
+function parseTimeout(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) throw new UsageError("--timeout must be a positive integer");
+  return n;
+}
+
+class UsageError extends Error {}
+
+function splitCommandLine(input) {
+  const out = [];
+  let cur = "";
+  let quote = null;
+  let escaped = false;
+
+  for (const ch of input) {
+    if (escaped) {
+      cur += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (cur) {
+        out.push(cur);
+        cur = "";
+      }
+      continue;
+    }
+    cur += ch;
+  }
+
+  if (escaped) cur += "\\";
+  if (quote) throw new UsageError("unclosed quote in command args");
+  if (cur) out.push(cur);
+  return out;
+}
+
+function buildCommand(base, extra) {
+  const parts = splitCommandLine(base);
+  if (parts.length === 0) throw new UsageError("empty command");
+  return {
+    file: parts[0],
+    args: parts.slice(1).concat(extra),
+  };
+}
+
+function runCommand(base, extra, timeoutMs) {
+  const command = buildCommand(base, extra);
+  return new Promise((resolve) => {
+    const child = spawn(command.file, command.args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
+    let stdout = "";
+    let stderr = "";
+    let done = false;
+    let timedOut = false;
+    let killTimer = null;
+    let hardTimer = null;
+    const finish = (result) => {
+      if (done) {
+        if (killTimer) clearTimeout(killTimer);
+        if (hardTimer) clearTimeout(hardTimer);
+        return;
+      }
+      done = true;
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      if (hardTimer) clearTimeout(hardTimer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+      }, 250);
+      hardTimer = setTimeout(() => {
+        finish({ exitCode: null, stdout, stderr, timedOut: true });
+      }, 1000);
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+    child.on("error", (error) => {
+      finish({ exitCode: null, stdout, stderr, error: error.message, timedOut });
+    });
+    child.on("close", (code, signal) => {
+      finish({ exitCode: code, signal, stdout, stderr, timedOut });
+    });
+  });
+}
+
+function makeCheck(name, args, validate) {
+  return { name, args, validate };
+}
+
+async function runChecks(opts) {
+  const checks = [
+    makeCheck("help", ["--help"], (r) => r.exitCode === 0 ? pass() : fail("expected exit 0")),
+    makeCheck("version", ["--version"], (r) => r.exitCode === 0 ? pass() : fail("expected exit 0")),
+    makeCheck("json-error", ["--json"].concat(splitCommandLine(opts.errorArgs)), (r) => {
+      const parsed = parseJson(r.stdout);
+      if (!parsed.ok) return fail(`stdout is not JSON: ${parsed.error}`);
+      const env = validateEnvelope(parsed.value, false);
+      if (!env.ok) return fail(env.message);
+      if (r.exitCode !== 2) return fail(`expected exit 2, got ${displayExit(r)}`);
+      return pass();
+    }),
+  ];
+
+  if (opts.successArgs) {
+    checks.push(makeCheck("json-success", ["--json"].concat(splitCommandLine(opts.successArgs)), (r) => {
+      const parsed = parseJson(r.stdout);
+      if (!parsed.ok) return fail(`stdout is not JSON: ${parsed.error}`);
+      const env = validateEnvelope(parsed.value, true);
+      if (!env.ok) return fail(env.message);
+      if (r.exitCode !== 0) return fail(`expected exit 0, got ${displayExit(r)}`);
+      return pass();
+    }));
+  }
+
+  if (opts.dryRunArgs) {
+    checks.push(makeCheck("dry-run-json", ["--dry-run", "--json"].concat(splitCommandLine(opts.dryRunArgs)), (r) => {
+      const parsed = parseJson(r.stdout);
+      if (!parsed.ok) return fail(`stdout is not JSON: ${parsed.error}`);
+      const env = validateEnvelope(parsed.value, true);
+      if (!env.ok) return fail(env.message);
+      if (parsed.value.dryRun !== true) return fail("expected dryRun: true");
+      if (r.exitCode !== 0) return fail(`expected exit 0, got ${displayExit(r)}`);
+      return pass();
+    }));
+  }
+
+  checks.push(makeCheck("schema", ["--schema"], (r) => {
+    if (r.exitCode !== 0) {
+      return opts.schemaRequired ? fail(`--schema unsupported: ${displayExit(r)}`) : skip("--schema unsupported");
+    }
+    const parsed = parseJson(r.stdout);
+    if (!parsed.ok) return fail(`stdout is not JSON: ${parsed.error}`);
+    const schema = validateSchema(parsed.value);
+    return schema.ok ? pass() : fail(schema.message);
+  }));
+
+  const results = [];
+  for (const check of checks) {
+    const run = await runCommand(opts.cmd, check.args, opts.timeoutMs);
+    const status = run.timedOut ? fail("timed out") : check.validate(run);
+    results.push({
+      name: check.name,
+      status: status.status,
+      message: status.message,
+      command: formatCommand(opts.cmd, check.args),
+      exitCode: run.exitCode,
+      stdout: opts.verbose ? trimOutput(run.stdout) : undefined,
+      stderr: opts.verbose ? trimOutput(run.stderr) : undefined,
+    });
+  }
+  return results;
+}
+
+function validateEnvelope(value, expectedOk) {
+  if (!isObject(value)) return fail("JSON root must be an object");
+  if (typeof value.schemaVersion !== "string") return fail("missing string schemaVersion");
+  if (value.ok !== expectedOk) return fail(`expected ok: ${expectedOk}`);
+  if (typeof value.code !== "string" || value.code.length === 0) return fail("missing string code");
+  if (expectedOk && !isObject(value.data)) return fail("missing object data");
+  if (!expectedOk && typeof value.message !== "string") return fail("missing string message");
+  if (!expectedOk && !isObject(value.detail)) return fail("missing object detail");
+  return pass();
+}
+
+function validateSchema(value) {
+  if (!isObject(value)) return fail("schema root must be an object");
+  if (typeof value.schemaVersion !== "string") return fail("schema missing string schemaVersion");
+  if (typeof value.name !== "string") return fail("schema missing string name");
+  if (!Array.isArray(value.commands)) return fail("schema missing commands array");
+  for (const command of value.commands) {
+    const result = validateCommandSchema(command);
+    if (!result.ok) return result;
+  }
+  if (!isObject(value.output)) return fail("schema missing output object");
+  const success = validateEnvelope(value.output.success, true);
+  if (!success.ok) return fail(`schema output.success invalid: ${success.message}`);
+  const error = validateEnvelope(value.output.error, false);
+  if (!error.ok) return fail(`schema output.error invalid: ${error.message}`);
+  if (!isObject(value.exitCodes)) return fail("schema missing exitCodes object");
+  if (typeof value.exitCodes["0"] !== "string") return fail("schema exitCodes missing string 0");
+  for (const [code, meaning] of Object.entries(value.exitCodes)) {
+    if (!/^\d+$/.test(code)) return fail(`schema exitCodes key must be numeric: ${code}`);
+    if (typeof meaning !== "string" || meaning.length === 0) return fail(`schema exitCodes ${code} must be non-empty string`);
+  }
+  return pass();
+}
+
+function validateCommandSchema(command) {
+  if (!isObject(command)) return fail("command must be an object");
+  if (typeof command.name !== "string" || command.name.length === 0) return fail("command missing name");
+  if (command.options !== undefined && !Array.isArray(command.options)) return fail(`command ${command.name} options must be array`);
+  for (const option of command.options || []) {
+    if (!isObject(option)) return fail(`command ${command.name} option must be object`);
+    if (typeof option.name !== "string") return fail(`command ${command.name} option missing name`);
+    if (typeof option.required !== "boolean") return fail(`command ${command.name} option ${option.name} missing required boolean`);
+    if (typeof option.type !== "string") return fail(`command ${command.name} option ${option.name} missing type`);
+  }
+  if (command.subcommands !== undefined) {
+    if (!Array.isArray(command.subcommands)) return fail(`command ${command.name} subcommands must be array`);
+    for (const subcommand of command.subcommands) {
+      const result = validateCommandSchema(subcommand);
+      if (!result.ok) return result;
+    }
+  }
+  return pass();
+}
+
+function parseJson(text) {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+function pass() {
+  return { ok: true, status: "pass" };
+}
+
+function fail(message) {
+  return { ok: false, status: "fail", message };
+}
+
+function skip(message) {
+  return { ok: true, status: "skip", message };
+}
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function formatCommand(base, args) {
+  return [base].concat(args).join(" ");
+}
+
+function displayExit(run) {
+  if (run.timedOut) return "timeout";
+  if (run.exitCode === null) return run.error || run.signal || "unknown";
+  return String(run.exitCode);
+}
+
+function trimOutput(value) {
+  const trimmed = value.trim();
+  return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
+}
+
+function response(ok, code, data, message, detail) {
+  const body = { schemaVersion: SCHEMA_VERSION, ok, code };
+  if (ok) body.data = data;
+  else {
+    body.message = message;
+    body.detail = detail || {};
+  }
+  return body;
+}
+
+function schema() {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    name: "agent-cli-validate",
+    version: VERSION,
+    commands: [
+      {
+        name: "validate",
+        description: "Validate an agent-first CLI contract.",
+        options: [
+          { name: "--cmd", required: true, type: "string" },
+          { name: "--success-args", required: false, type: "string" },
+          { name: "--error-args", required: false, type: "string" },
+          { name: "--dry-run-args", required: false, type: "string" },
+          { name: "--schema-required", required: false, type: "boolean" },
+          { name: "--timeout", required: false, type: "number" },
+          { name: "--json", required: false, type: "boolean" },
+          { name: "--verbose", required: false, type: "boolean" },
+          { name: "--schema", required: false, type: "boolean" },
+          { name: "--help", required: false, type: "boolean" },
+          { name: "--version", required: false, type: "boolean" }
+        ]
+      }
+    ],
+    output: {
+      success: response(true, "OK", { checks: [] }),
+      error: response(false, "ERR_VALIDATION_FAILED", undefined, "Agent CLI validation failed.", { checks: [] })
+    },
+    exitCodes: {
+      0: "success",
+      1: "validation failed / generic error",
+      2: "usage / invalid arguments"
+    }
+  };
+}
+
+function printJson(value) {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function printHuman(results) {
+  for (const result of results) {
+    const suffix = result.message ? ` - ${result.message}` : "";
+    process.stdout.write(`${result.status.toUpperCase()} ${result.name}${suffix}\n`);
+    if (result.stdout) process.stdout.write(`  stdout: ${result.stdout}\n`);
+    if (result.stderr) process.stdout.write(`  stderr: ${result.stderr}\n`);
+  }
+}
+
+async function main() {
+  let opts;
+  try {
+    opts = parseArgv(process.argv.slice(2));
+  } catch (error) {
+    if (error instanceof UsageError) {
+      if (process.argv.slice(2).includes("--json")) {
+        printJson(response(false, "ERR_USAGE", undefined, error.message, {}));
+      } else {
+        process.stderr.write(`${error.message}\n\n${usage()}\n`);
+      }
+      process.exit(EXIT.USAGE);
+    }
+    throw error;
+  }
+
+  if (opts.help) {
+    if (opts.json) printJson(response(true, "OK", { usage: usage() }));
+    else process.stdout.write(`${usage()}\n`);
+    return;
+  }
+  if (opts.version) {
+    if (opts.json) printJson(response(true, "OK", { version: VERSION }));
+    else process.stdout.write(`${VERSION}\n`);
+    return;
+  }
+  if (opts.schema) {
+    printJson(schema());
+    return;
+  }
+
+  const results = await runChecks(opts);
+  const failed = results.filter((r) => r.status === "fail");
+  const data = { checks: results.map((r) => cleanResult(r)) };
+
+  if (opts.json) {
+    if (failed.length === 0) printJson(response(true, "OK", data));
+    else printJson(response(false, "ERR_VALIDATION_FAILED", undefined, "Agent CLI validation failed.", data));
+  } else {
+    printHuman(results);
+  }
+
+  process.exit(failed.length === 0 ? EXIT.OK : EXIT.ERROR);
+}
+
+function cleanResult(result) {
+  const out = {};
+  for (const [key, value] of Object.entries(result)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.stack || error.message}\n`);
+  process.exit(EXIT.ERROR);
+});

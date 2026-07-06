@@ -1,6 +1,6 @@
 ---
 name: gen-doc
-description: Generate bilingual (English + Chinese) doc comments per language convention — JSDoc for TS/JS, Google docstring for Python, godoc for Go, Javadoc for Java, rustdoc for Rust. Use when the user asks to generate docs, write JSDoc, add docstrings, or annotate code.
+description: Generate bilingual (English + Chinese) doc comments per language convention — JSDoc for TS/JS, Google docstring for Python, godoc for Go, Javadoc for Java, rustdoc for Rust. Use when the user asks to generate docs, write JSDoc, add docstrings, or annotate code. 触发：用户说"生成文档注释""写 JSDoc""补 docstring""annotate code"。
 ---
 
 # gen-doc

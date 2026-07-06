@@ -40,13 +40,17 @@ agent-kit/
 ├── uninstall.sh
 ├── validate.sh             # 校验 skills 的 frontmatter（name/description/触发词）
 ├── bin/
-│   └── agent-kit           # Node CLI（跨平台，含 Windows；与 .sh 等价）
+│   ├── agent-kit           # Node CLI（跨平台，含 Windows；与 .sh 等价）
+│   └── agent-cli-validate  # agent-first CLI 契约验证器（无依赖 Node CLI）
+├── templates/
+│   └── agent-cli-ts/       # TS/Node agent-first CLI 模板（runtime 零依赖）
 ├── rules/                  # 行为规则源
 │   └── behavior.md         # 纯 markdown 单一源（Cursor 的 frontmatter 由脚本注入）
 └── skills/                 # 通用技能（一 skill 一文件夹）
     └── <skill-name>/
         └── SKILL.md        # propose（统筹）/ explore / grill / tdd / diagnose
-                            #   review / commit / docs / gen-doc / adr / retro / caveman
+                            #   review / commit / docs / gen-doc / agent-cli-creator
+                            #   adr / retro / caveman
 ```
 
 - **rules/**：`behavior.md` 为纯 markdown 单一源。Cursor 的 `.mdc`（含 `description` / `alwaysApply` frontmatter）由 `install.sh` 在部署时生成。
@@ -108,6 +112,27 @@ node bin/agent-kit validate                      # 校验 skills 的 frontmatter
 - **Skill**：流程类（多步操作手册）。`SKILL.md` 的描述要写清「**何时使用**」，否则不会被主动触发。
 - **校验**：改/加 skill 后跑 `./validate.sh`（或 `node bin/agent-kit validate`），检查每个 `SKILL.md` 的 frontmatter（`name` 与目录名一致、含 `description` 与触发词）。新增 skill 记得重跑安装。
 
+## Agent CLI 验证器
+
+`bin/agent-cli-validate` 用来检查给 agent 调用的 CLI 是否满足基础契约：`--help`、`--version`、JSON 错误 envelope、可选 `--schema`、可选成功 JSON 与 dry-run JSON。
+
+```bash
+node bin/agent-cli-validate --cmd "node bin/agent-cli-validate" --schema-required --json
+node bin/agent-cli-validate --cmd "./bin/foo" --success-args "list" --json
+node bin/agent-cli-validate --cmd "foo" --dry-run-args "write --target tmp" --json
+```
+
+## Agent CLI 模板
+
+`templates/agent-cli-ts/` 是 TS/Node 模板：runtime 零依赖，唯一 devDependency 是 `typescript`，内置 `ping` / `write` 示例、`--schema`、完整测试和 validator 调用。
+
+```bash
+cd templates/agent-cli-ts
+npm install
+npm test
+npm run validate
+```
+
 ## 清单
 
 ### Rules
@@ -131,6 +156,7 @@ node bin/agent-kit validate                      # 校验 skills 的 frontmatter
 | `commit` | 规范化 git 提交（可选开 PR）：审阅改动、按 Conventional Commits 写「为什么」、只提交相关文件、避开 secrets（仅在明确要求时执行） | [Conventional Commits](https://www.conventionalcommits.org) |
 | `docs` | 写/更新文档：内容忠于代码、优先改现有文档、匹配既有风格、保持精简；覆盖 README / API / changelog | docs-as-code / [Keep a Changelog](https://keepachangelog.com) |
 | `gen-doc` | 按编程语言生成中英双语代码注释：TS/JS 用 JSDoc（`@en`/`@zh`）、Python 用 Google docstring、Go 用 godoc、Java/Kotlin 用 Javadoc、Rust 用 rustdoc；含粒度判断（公开 API 必写、内部 helper 按需）与副作用标注 | 双语注释规范（自建） |
+| `agent-cli-creator` | 创建给 AI agent/自动化系统调用的 CLI：默认 TS/Node，要求非交互、稳定 JSON、exit code、安装/发现契约、安全默认值与验证清单 | agent-first CLI 设计规范（自建） |
 | `adr` | 架构决策记录：仅记难撤销/无背景会困惑/有真实权衡的决策，Accepted 后不可改、变更走 supersede | Michael Nygard，[ADR](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) |
 | `retro` | 复盘（个人任务 / 团队迭代）：梳理顺利与问题、挖根因、出行动项，并可把教训回写到 rules/skills/docs | 敏捷回顾 + 无指责复盘（[Google SRE](https://sre.google/sre-book/postmortem-culture/)） |
 | `caveman` | 超压缩中文沟通模式：砍客套虚词、token 省约 75%，技术内容与代码不变，破坏性操作时自动恢复正常表述 | 中文改写自 mattpocock/skills [`caveman`](https://github.com/mattpocock/skills) |
@@ -150,6 +176,7 @@ node bin/agent-kit validate                      # 校验 skills 的 frontmatter
 | `commit` | 确定要提交了 | "帮我提交" / "提个 PR" |
 | `docs` | 功能做完要写/更新说明 | "更新下 README" / "写条 changelog" |
 | `gen-doc` | 给代码加中英双语注释 | "生成文档注释" / "写 JSDoc" / "补 docstring" |
+| `agent-cli-creator` | 要创建给 agent/自动化调用的命令行工具 | "创建给 agent 用的 CLI" / "机器可读 CLI" |
 | `adr` | 拍了个难撤销的重大技术决策要存档 | "把这个选型决策记下来" |
 | `retro` | 一个任务/迭代收尾，想复盘提炼 | "这次复盘一下" |
 | `caveman` | 想让回话极简、省 token | "野人模式" / "精简点" |

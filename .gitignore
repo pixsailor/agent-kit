@@ -1,1 +1,3 @@
 .DS_Store
+templates/agent-cli-ts/node_modules/
+templates/agent-cli-ts/dist/

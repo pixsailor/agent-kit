@@ -1,0 +1,18 @@
+{
+  "name": "agent-cli-template",
+  "version": "0.1.0",
+  "description": "A zero-runtime-dependency TypeScript template for agent-first CLIs.",
+  "type": "module",
+  "bin": {
+    "agent-cli-template": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "validate": "npm run build && node ../../bin/agent-cli-validate --cmd \"node dist/cli.js\" --schema-required --success-args \"ping\" --dry-run-args \"write --target .tmp/validate.txt\" --json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
